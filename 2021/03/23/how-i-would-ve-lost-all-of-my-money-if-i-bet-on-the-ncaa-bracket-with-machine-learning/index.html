@@ -62,7 +62,7 @@
 
   <article class="article">
     
-    <span class="article-duration">2 min read</span>
+    <span class="article-duration">13 min read</span>
     
 
     <h1 class="article-title">How I would&#39;ve lost all of my money if I bet on the NCAA bracket (with machine learning)</h1>
@@ -73,13 +73,19 @@
 
     <div class="article-content">
       
+<script src="/2021/03/23/how-i-would-ve-lost-all-of-my-money-if-i-bet-on-the-ncaa-bracket-with-machine-learning/index_files/kePrint/kePrint.js"></script>
+<link href="/2021/03/23/how-i-would-ve-lost-all-of-my-money-if-i-bet-on-the-ncaa-bracket-with-machine-learning/index_files/lightable/lightable.css" rel="stylesheet" />
 
 
 <p>The greatest thing about my current job is that it does not allow me to bet money on college sports. If I were able to bet on March Madness, I would be in serious debt.</p>
-<p>I don’t claim to be a basketball genius, but I certainly wouldn’t say that I have no idea what I’m doing when filling out an NCAA Tournament bracket. When I’m picking my teams, I can back up my picks with solid reasoning.</p>
+<p>I don’t claim to be a basketball genius, but I certainly wouldn’t say that I have no idea what I’m doing when filling out an NCAA Tournament bracket. When I’m picking my teams, I can back up my picks with solid reasoning. I am currently batting a 92% percent in my bracket with my roommates.</p>
 <p>But what I can’t do, is compile data from previous seasons into my tiny little brain and create/apply an algorithm using the data to predict what teams will win and what teams will lose. And that’s where machine learning comes in.</p>
 <p>Using R Studio, I created a bracket based on the stats that I wanted to use to predict the games. How does it compare to what is currently happening in the tournament? Let’s just say that if my model were 100% correct, this would be the most entertaining and chaotic tournament to date.</p>
-<p>Feature Engineering</p>
+<p>Anyway, here’s how I did it.</p>
+<p>-Feature Engineering-</p>
+<p>I used a couple of libraries: tidyverse and tidymodels were used to create and feed the model, zoo was used for xgboost and kableExtra was used to create nicer looking tables. I also set a random seed to aid in randomly splitting numbers, which helps our reproducibility. Last, we have doParallel to help with processing, as without it, XGBoost will take a lot longer.</p>
+<p>Fun fact, even with doParallel, it still took my computer 40 of a constant fan spinning before it finished processing all of the information.</p>
+<pre class="r"><code>library(tidyverse)</code></pre>
 <pre><code>## ── Attaching packages ─────────────────────────────────────── tidyverse 1.3.0 ──</code></pre>
 <pre><code>## ✓ ggplot2 3.3.3     ✓ purrr   0.3.4
 ## ✓ tibble  3.0.5     ✓ dplyr   1.0.3
@@ -88,6 +94,7 @@
 <pre><code>## ── Conflicts ────────────────────────────────────────── tidyverse_conflicts() ──
 ## x dplyr::filter() masks stats::filter()
 ## x dplyr::lag()    masks stats::lag()</code></pre>
+<pre class="r"><code>library(tidymodels)</code></pre>
 <pre><code>## ── Attaching packages ────────────────────────────────────── tidymodels 0.1.2 ──</code></pre>
 <pre><code>## ✓ broom     0.7.3      ✓ recipes   0.1.15
 ## ✓ dials     0.0.9      ✓ rsample   0.0.8 
@@ -101,16 +108,21 @@
 ## x dplyr::lag()      masks stats::lag()
 ## x yardstick::spec() masks readr::spec()
 ## x recipes::step()   masks stats::step()</code></pre>
+<pre class="r"><code>library(zoo)</code></pre>
 <pre><code>## 
 ## Attaching package: &#39;zoo&#39;</code></pre>
 <pre><code>## The following objects are masked from &#39;package:base&#39;:
 ## 
 ##     as.Date, as.Date.numeric</code></pre>
+<pre class="r"><code>library(kableExtra)</code></pre>
 <pre><code>## 
 ## Attaching package: &#39;kableExtra&#39;</code></pre>
 <pre><code>## The following object is masked from &#39;package:dplyr&#39;:
 ## 
 ##     group_rows</code></pre>
+<pre class="r"><code>set.seed(1234)
+
+require(doParallel)</code></pre>
 <pre><code>## Loading required package: doParallel</code></pre>
 <pre><code>## Loading required package: foreach</code></pre>
 <pre><code>## 
@@ -120,8 +132,424 @@
 ##     accumulate, when</code></pre>
 <pre><code>## Loading required package: iterators</code></pre>
 <pre><code>## Loading required package: parallel</code></pre>
-<p>Feature Engineering</p>
-<p>I will be using the data scraped from Sports Reference website and contained every single Division I game’s box score since 2014-2015.</p>
+<pre class="r"><code>cores &lt;- parallel::detectCores(logical = FALSE)</code></pre>
+<p>Next, we import our data. The data was scraped from Sports Reference by my professor, Matt Waite. It contains the box score from every single Division I game since the beginning of 2014-2015.</p>
+<p>After I imported the data, I had to think to myself on what stats I wanted to use as predictors for the matches’ outcome. I usually go with possessions and offensive/defensive ratings.</p>
+<p>However, since my professor already did that, I had to think of something else.</p>
+<p>So, in this case, I went with possessions, true shooting percentage, and total rebounds. More possessions are important because that means a team has more chances to score. A higher true shooting percentage means you are more efficient at scoring. And total rebounds mean you are taking back possession.</p>
+<p>I also created a “quality win” category. This is important because a team in a bad conference might put up insane stats due to the lack of competition, so the model might favor them without that context. This was calculated with the opponent’s simple ratings and score margin.</p>
+<p>A team losing a close game to a great team isn’t a bad loss, but a great team beating a bad team isn’t worth much, and so forth.</p>
+<p>Next, I calculated the cumulative mean for the predictors that I chose above because the cumulative mean approximates how the team would perform at each of those stats.</p>
+<p>Some teams also have slower starts to the season, so I only calculated the means of the last ten games, as it would be a more accurate representation of what the team will look like.</p>
+<pre class="r"><code>games &lt;- read_csv(&quot;~/Desktop/School/SPMC-491/cbblogs1521.csv&quot;) %&gt;%
+  mutate(
+  Possessions = .5*(TeamFGA - TeamOffRebounds + TeamTurnovers + (.475 * TeamFTA)) + .5*(OpponentFGA - OpponentOffRebounds + OpponentTurnovers + (.475 * OpponentFTA)),
+  TSP = (TeamScore / (2 * (TeamFGA + .475 * TeamFTA))), 
+  TeamScoreDiff = TeamScore - OpponentScore, 
+  QualityWin = case_when(is.na(OpponentSRS) == TRUE ~ TeamScoreDiff, TRUE ~ TeamScoreDiff + OpponentSRS)
+  ) %&gt;%
+  group_by(Team, Season) %&gt;%
+  mutate(
+  Cumulative_Mean_Pace = cummean(Possessions),
+  Cumulative_Mean_TSP = cummean(TSP),
+  Cumulative_Mean_Rebounds = cummean(TeamTotalRebounds),
+  Cumulative_Mean_Quality_Win = cummean(QualityWin)
+  ) %&gt;% filter(between(Game, max(Game)-10, max(Game))) %&gt;% ungroup() %&gt;% 
+  mutate(
+    Location = case_when(
+    str_trim(HomeAway) == &quot;@&quot; ~ &quot;A&quot;,
+    str_trim(HomeAway) == &quot;N&quot; ~ &quot;N&quot;,
+    TRUE ~ &quot;H&quot;
+  ),
+ Outcome = case_when(
+  grepl(&quot;W&quot;, W_L) ~ &quot;W&quot;, 
+  grepl(&quot;L&quot;, W_L) ~ &quot;L&quot;
+ )
+) %&gt;%
+  mutate(Outcome = as.factor(Outcome)) </code></pre>
+<pre><code>## 
+## ── Column specification ────────────────────────────────────────────────────────
+## cols(
+##   .default = col_double(),
+##   Season = col_character(),
+##   Date = col_date(format = &quot;&quot;),
+##   TeamFull = col_character(),
+##   Opponent = col_character(),
+##   HomeAway = col_character(),
+##   W_L = col_character(),
+##   URL = col_character(),
+##   Conference = col_character(),
+##   Team = col_character()
+## )
+## ℹ Use `spec()` for the full column specifications.</code></pre>
+<p>Since the dataset has each game twice (one for each side), I had to combine them into a single dataset to get the correct stats.</p>
+<pre class="r"><code>selectedgames &lt;- games %&gt;% select(Season, Team, Date, Opponent, Outcome, Cumulative_Mean_Pace, Cumulative_Mean_TSP, Cumulative_Mean_Rebounds, Cumulative_Mean_Quality_Win, TeamSRS, TeamSOS)</code></pre>
+<pre class="r"><code>opponentgames &lt;- selectedgames %&gt;% select(-Opponent) %&gt;% rename(Opponent = Team, Opponent_Cumulative_Mean_Pace = Cumulative_Mean_Pace, Opponent_Cumulative_Mean_TSP = Cumulative_Mean_TSP, Opponent_Cumulative_Mean_Rebounds = Cumulative_Mean_Rebounds, Opponent_Cumulative_Mean_Quality_Win = Cumulative_Mean_Quality_Win, OpponentSRS = TeamSRS, OpponentSOS = TeamSOS)</code></pre>
+<pre class="r"><code>bothsides &lt;- selectedgames %&gt;% left_join(opponentgames, by=c(&quot;Opponent&quot;, &quot;Date&quot;, &quot;Season&quot;)) %&gt;% na.omit() %&gt;% select(-Outcome.y) %&gt;% rename(Outcome = Outcome.x) </code></pre>
+<p>-Creating the model-</p>
+<p>Before creating the model, the first thing I needed to do was to split the data into training and testing sets. By doing this, I will have two different data frames I can use for my model.</p>
+<pre class="r"><code>bracket_split &lt;- initial_split(bothsides, prop = .8)
+bracket_train &lt;- training(bracket_split)
+bracket_test &lt;- testing(bracket_split)</code></pre>
+<p>Next, I created a recipe. I want my outcome to be predicted by the predictors. I’ve also updated some of my fields, so they aren’t used as predictors (such as team, date, season, opponent, etc.)</p>
+<pre class="r"><code>xg_rec &lt;- 
+  recipe(Outcome ~ ., data = bracket_train) %&gt;%
+  update_role(Team, Opponent, Date, Season, new_role = &quot;ID&quot;)
+
+summary(xg_rec)</code></pre>
+<pre><code>## # A tibble: 17 x 4
+##    variable                             type    role      source  
+##    &lt;chr&gt;                                &lt;chr&gt;   &lt;chr&gt;     &lt;chr&gt;   
+##  1 Season                               nominal ID        original
+##  2 Team                                 nominal ID        original
+##  3 Date                                 date    ID        original
+##  4 Opponent                             nominal ID        original
+##  5 Cumulative_Mean_Pace                 numeric predictor original
+##  6 Cumulative_Mean_TSP                  numeric predictor original
+##  7 Cumulative_Mean_Rebounds             numeric predictor original
+##  8 Cumulative_Mean_Quality_Win          numeric predictor original
+##  9 TeamSRS                              numeric predictor original
+## 10 TeamSOS                              numeric predictor original
+## 11 Opponent_Cumulative_Mean_Pace        numeric predictor original
+## 12 Opponent_Cumulative_Mean_TSP         numeric predictor original
+## 13 Opponent_Cumulative_Mean_Rebounds    numeric predictor original
+## 14 Opponent_Cumulative_Mean_Quality_Win numeric predictor original
+## 15 OpponentSRS                          numeric predictor original
+## 16 OpponentSOS                          numeric predictor original
+## 17 Outcome                              nominal outcome   original</code></pre>
+<p>Next, I define the model, which in this case will be xgboost. I tuned that later.</p>
+<pre class="r"><code>xg_mod &lt;-   boost_tree(
+  trees = tune(), 
+  learn_rate = tune(),
+  tree_depth = tune(), 
+  min_n = tune(),
+  loss_reduction = tune(), 
+  sample_size = tune(), 
+  mtry = tune(), 
+  ) %&gt;% 
+  set_mode(&quot;classification&quot;) %&gt;% 
+  set_engine(&quot;xgboost&quot;, nthread = cores)</code></pre>
+<p>Next, I create a workflow which can do all sorts of things for me.</p>
+<pre class="r"><code>bracket_wflow &lt;- 
+  workflow() %&gt;% 
+  add_model(xg_mod) %&gt;% 
+  add_recipe(xg_rec)</code></pre>
+<p>I tuned my hyperparamters using latin hypercube, which generates near random samples of parameters.</p>
+<pre class="r"><code>xgb_grid &lt;- grid_latin_hypercube(
+  trees(),
+  tree_depth(),
+  min_n(),
+  loss_reduction(),
+  sample_size = sample_prop(),
+  finalize(mtry(), bracket_train),
+  learn_rate(),
+  size = 30
+)
+
+xgb_grid</code></pre>
+<pre><code>## # A tibble: 30 x 7
+##    trees tree_depth min_n loss_reduction sample_size  mtry learn_rate
+##    &lt;int&gt;      &lt;int&gt; &lt;int&gt;          &lt;dbl&gt;       &lt;dbl&gt; &lt;int&gt;      &lt;dbl&gt;
+##  1   237          3    19 0.555                0.387    17   5.38e- 8
+##  2   484          2    37 0.000000000905       0.426    12   8.10e- 4
+##  3  1112          8    29 0.00000000255        0.692    11   7.97e- 6
+##  4  1648          6    24 0.271                0.834    15   2.41e- 4
+##  5  1160          6     7 9.50                 0.186     1   4.87e- 2
+##  6  1004         10    26 0.0644               0.467     9   2.16e- 3
+##  7  1367         12    30 0.000000228          0.795     5   6.02e- 6
+##  8   348         10    13 0.0000000956         0.873     9   6.33e- 9
+##  9   165          4    12 0.00000684           0.929     8   3.62e-10
+## 10   561          7     2 0.000821             0.895    13   5.89e- 3
+## # … with 20 more rows</code></pre>
+<p>In order to test these, I created cross-fold validation samples, then double checked that they actually worked.</p>
+<pre class="r"><code>bracket_folds &lt;- vfold_cv(bracket_train)
+
+bracket_folds</code></pre>
+<pre><code>## #  10-fold cross-validation 
+## # A tibble: 10 x 2
+##    splits               id    
+##    &lt;list&gt;               &lt;chr&gt; 
+##  1 &lt;split [12.2K/1.4K]&gt; Fold01
+##  2 &lt;split [12.2K/1.4K]&gt; Fold02
+##  3 &lt;split [12.2K/1.4K]&gt; Fold03
+##  4 &lt;split [12.2K/1.4K]&gt; Fold04
+##  5 &lt;split [12.2K/1.4K]&gt; Fold05
+##  6 &lt;split [12.2K/1.4K]&gt; Fold06
+##  7 &lt;split [12.2K/1.4K]&gt; Fold07
+##  8 &lt;split [12.2K/1.4K]&gt; Fold08
+##  9 &lt;split [12.2K/1.4K]&gt; Fold09
+## 10 &lt;split [12.2K/1.4K]&gt; Fold10</code></pre>
+<p>Now the fun part, I tell my laptop to turn into a jet engine. Here, I am using a lot of processing power to test the cross-validation samples against my latin hypercube samples.</p>
+<p>I’m also serious about it being a jet engine.</p>
+<p>It sounded like an airplane was starting up.</p>
+<p>40 minutes of airplane fans.</p>
+<p>Imagine that.</p>
+<pre class="r"><code>doParallel::registerDoParallel(cores = cores)
+
+xgb_res &lt;- tune_grid(
+  bracket_wflow,
+  resamples = bracket_folds,
+  grid = xgb_grid,
+  control = control_grid(save_pred = TRUE)
+)</code></pre>
+<pre><code>## 
+## Attaching package: &#39;rlang&#39;</code></pre>
+<pre><code>## The following objects are masked from &#39;package:purrr&#39;:
+## 
+##     %@%, as_function, flatten, flatten_chr, flatten_dbl, flatten_int,
+##     flatten_lgl, flatten_raw, invoke, list_along, modify, prepend,
+##     splice</code></pre>
+<pre><code>## 
+## Attaching package: &#39;vctrs&#39;</code></pre>
+<pre><code>## The following object is masked from &#39;package:dplyr&#39;:
+## 
+##     data_frame</code></pre>
+<pre><code>## The following object is masked from &#39;package:tibble&#39;:
+## 
+##     data_frame</code></pre>
+<pre><code>## 
+## Attaching package: &#39;xgboost&#39;</code></pre>
+<pre><code>## The following object is masked from &#39;package:dplyr&#39;:
+## 
+##     slice</code></pre>
+<pre class="r"><code>doParallel::stopImplicitCluster()
+
+xgb_res</code></pre>
+<pre><code>## # Tuning results
+## # 10-fold cross-validation 
+## # A tibble: 10 x 5
+##    splits             id    .metrics         .notes         .predictions        
+##    &lt;list&gt;             &lt;chr&gt; &lt;list&gt;           &lt;list&gt;         &lt;list&gt;              
+##  1 &lt;split [12.2K/1.4… Fold… &lt;tibble [60 × 1… &lt;tibble [0 × … &lt;tibble [40,650 × 1…
+##  2 &lt;split [12.2K/1.4… Fold… &lt;tibble [60 × 1… &lt;tibble [0 × … &lt;tibble [40,620 × 1…
+##  3 &lt;split [12.2K/1.4… Fold… &lt;tibble [60 × 1… &lt;tibble [0 × … &lt;tibble [40,620 × 1…
+##  4 &lt;split [12.2K/1.4… Fold… &lt;tibble [60 × 1… &lt;tibble [0 × … &lt;tibble [40,620 × 1…
+##  5 &lt;split [12.2K/1.4… Fold… &lt;tibble [60 × 1… &lt;tibble [0 × … &lt;tibble [40,620 × 1…
+##  6 &lt;split [12.2K/1.4… Fold… &lt;tibble [60 × 1… &lt;tibble [0 × … &lt;tibble [40,620 × 1…
+##  7 &lt;split [12.2K/1.4… Fold… &lt;tibble [60 × 1… &lt;tibble [0 × … &lt;tibble [40,620 × 1…
+##  8 &lt;split [12.2K/1.4… Fold… &lt;tibble [60 × 1… &lt;tibble [0 × … &lt;tibble [40,620 × 1…
+##  9 &lt;split [12.2K/1.4… Fold… &lt;tibble [60 × 1… &lt;tibble [0 × … &lt;tibble [40,620 × 1…
+## 10 &lt;split [12.2K/1.4… Fold… &lt;tibble [60 × 1… &lt;tibble [0 × … &lt;tibble [40,620 × 1…</code></pre>
+<p>After taking a shower, making dinner, and stealing the Declaration of Independence, it is finished. We have the best combination of hyperparameters, so next I evaluated my metric using area under the curve.</p>
+<pre class="r"><code>best_roc &lt;- select_best(xgb_res, &quot;roc_auc&quot;)</code></pre>
+<p>I’ll put it into a model and then fit it all together.</p>
+<pre class="r"><code>final_xgb &lt;- finalize_workflow(
+  bracket_wflow,
+  best_roc
+)</code></pre>
+<pre class="r"><code>xg_fit &lt;- 
+  final_xgb %&gt;% 
+  fit(data = bracket_train)</code></pre>
+<pre><code>## [11:03:08] WARNING: amalgamation/../src/learner.cc:1061: Starting in XGBoost 1.3.0, the default evaluation metric used with the objective &#39;binary:logistic&#39; was changed from &#39;error&#39; to &#39;logloss&#39;. Explicitly set eval_metric if you&#39;d like to restore the old behavior.</code></pre>
+<p>-The Model-</p>
+<pre class="r"><code>trainresults &lt;- bracket_train %&gt;%
+  bind_cols(predict(xg_fit, bracket_train))</code></pre>
+<p>Using metrics, we can see the accuracy of our model.</p>
+<pre class="r"><code>metrics(trainresults, truth = Outcome, estimate = .pred_class)</code></pre>
+<pre><code>## # A tibble: 2 x 3
+##   .metric  .estimator .estimate
+##   &lt;chr&gt;    &lt;chr&gt;          &lt;dbl&gt;
+## 1 accuracy binary         0.725
+## 2 kap      binary         0.450</code></pre>
+<p>My model is telling me that it can accurately predict the outcome about 72% of the time. I’ll take it. There are a lot of things that goes into winning a basketball game, so a 70% accuracy is good enough for me.</p>
+<p>We’ll also see how it does with data that the model hasn’t seen yet.</p>
+<pre class="r"><code>testresults &lt;- bracket_test %&gt;%
+  bind_cols(predict(xg_fit, bracket_test))</code></pre>
+<p>Slightly under 70%, but it’s another thing I’d take. Now we apply it to the bracket.</p>
+<pre class="r"><code>metrics(testresults, truth = Outcome, estimate = .pred_class)</code></pre>
+<pre><code>## # A tibble: 2 x 3
+##   .metric  .estimator .estimate
+##   &lt;chr&gt;    &lt;chr&gt;          &lt;dbl&gt;
+## 1 accuracy binary         0.692
+## 2 kap      binary         0.384</code></pre>
+<p>-Applying the model to the games-</p>
+<p>Now for the fun part.</p>
+<p>What I did next was create a tibble, and put in the teams. After that, I get the data needed and join them together, making sure that the predictors are selected so the model can predict the games.</p>
+<pre class="r"><code>west &lt;- tibble(
+  Team=&quot;Gonzaga&quot;,
+  Opponent=&quot;Norfolk State&quot;,
+  Date = as.Date(&quot;2021-03-19&quot;)
+) %&gt;% add_row(
+  Team=&quot;Oklahoma&quot;,
+  Opponent=&quot;Missouri&quot;,
+  Date = as.Date(&quot;2021-03-19&quot;)
+) %&gt;% add_row(
+  Team=&quot;Creighton&quot;,
+  Opponent=&quot;UC-Santa Barbara&quot;,
+  Date = as.Date(&quot;2021-03-19&quot;)
+) %&gt;% add_row(
+  Team=&quot;Virginia&quot;,
+  Opponent=&quot;Ohio&quot;,
+  Date = as.Date(&quot;2021-03-19&quot;)
+) %&gt;% add_row(
+  Team=&quot;Southern California&quot;,
+  Opponent=&quot;Drake&quot;,
+  Date = as.Date(&quot;2021-03-19&quot;)
+) %&gt;% add_row(
+  Team=&quot;Kansas&quot;,
+  Opponent=&quot;Eastern Washington&quot;,
+  Date = as.Date(&quot;2021-03-19&quot;)
+) %&gt;% add_row(
+  Team=&quot;Oregon&quot;,
+  Opponent=&quot;Virginia Commonwealth&quot;,
+  Date = as.Date(&quot;2021-03-19&quot;)
+) %&gt;% add_row(
+  Team=&quot;Iowa&quot;,
+  Opponent=&quot;Grand Canyon&quot;,
+  Date = as.Date(&quot;2021-03-19&quot;)
+)</code></pre>
+<pre class="r"><code>west &lt;- selectedgames %&gt;% group_by(Team) %&gt;% filter(Date == max(Date), Season == &quot;2020-2021&quot;) %&gt;% select(-Date, -Opponent, -Outcome) %&gt;% right_join(west)</code></pre>
+<pre><code>## Joining, by = &quot;Team&quot;</code></pre>
+<pre class="r"><code>west &lt;- opponentgames %&gt;% group_by(Opponent) %&gt;% filter(Date == max(Date)) %&gt;% ungroup()  %&gt;% select(-Season, -Date, -Outcome) %&gt;% right_join(west, by=c(&quot;Opponent&quot;)) %&gt;% select(Team, everything())</code></pre>
+<pre class="r"><code>westregional &lt;- xg_fit %&gt;% predict(new_data = west) %&gt;%
+  bind_cols(west) 
+
+westregional &lt;- xg_fit %&gt;% predict(new_data = westregional, type=&quot;prob&quot;) %&gt;%
+  bind_cols(westregional)</code></pre>
+<pre class="r"><code>westregional %&gt;% select(Team, .pred_class, Opponent, .pred_W) %&gt;% kable() %&gt;% kable_styling(bootstrap_options = c(&quot;striped&quot;, &quot;condensed&quot;))</code></pre>
+<table class="table table-striped table-condensed" style="margin-left: auto; margin-right: auto;">
+<thead>
+<tr>
+<th style="text-align:left;">
+Team
+</th>
+<th style="text-align:left;">
+.pred_class
+</th>
+<th style="text-align:left;">
+Opponent
+</th>
+<th style="text-align:right;">
+.pred_W
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left;">
+Creighton
+</td>
+<td style="text-align:left;">
+W
+</td>
+<td style="text-align:left;">
+UC-Santa Barbara
+</td>
+<td style="text-align:right;">
+0.7128924
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Southern California
+</td>
+<td style="text-align:left;">
+W
+</td>
+<td style="text-align:left;">
+Drake
+</td>
+<td style="text-align:right;">
+0.7159200
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Kansas
+</td>
+<td style="text-align:left;">
+W
+</td>
+<td style="text-align:left;">
+Eastern Washington
+</td>
+<td style="text-align:right;">
+0.8117352
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Iowa
+</td>
+<td style="text-align:left;">
+W
+</td>
+<td style="text-align:left;">
+Grand Canyon
+</td>
+<td style="text-align:right;">
+0.7408881
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Oklahoma
+</td>
+<td style="text-align:left;">
+W
+</td>
+<td style="text-align:left;">
+Missouri
+</td>
+<td style="text-align:right;">
+0.5800598
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Gonzaga
+</td>
+<td style="text-align:left;">
+W
+</td>
+<td style="text-align:left;">
+Norfolk State
+</td>
+<td style="text-align:right;">
+0.8470381
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Virginia
+</td>
+<td style="text-align:left;">
+W
+</td>
+<td style="text-align:left;">
+Ohio
+</td>
+<td style="text-align:right;">
+0.7350729
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Oregon
+</td>
+<td style="text-align:left;">
+W
+</td>
+<td style="text-align:left;">
+Virginia Commonwealth
+</td>
+<td style="text-align:right;">
+0.5329345
+</td>
+</tr>
+</tbody>
+</table>
+<p>So with the west region, the model correctly guessed 7/8. Upsets happen all the time, so I was very happy with what I was seeing right away. The win prediction percentages made sense, so I had a lot of faith in my model.</p>
+<p>-My Faith Being Destroyed-</p>
+<p>Seeing the good start to the west region, you might be wondering how I could lose money from a model that seemed to perform well.</p>
+<p>Well… here’s what my model predicted for the tournament.</p>
+<p>Warning. This is going to burn your eyes.</p>
+<p><embed src="images/all%20I%20do%20is%20WIN(ston)%20-%20Tournament%20Challenge%20-%20ESPN.pdf" /></p>
+<p>For those who went to the hospital to get your eyes surgically removed, I apologize.</p>
+<p>My model really, really, REALLY liked Colgate.</p>
+<p>I’m going to be honest, I did not want to submit this bracket. But at this point it was a win-win type of situation. Either I learn something important about my model, or my model is super accurate and I get hired to become a data analyst and we have a very entertaining March Madness as we see Colgate win it all and get sponsored by colgate.</p>
+<p>While I didn’t agree with the Colgate selection, I didn’t really hate my model. Sure, there is a lot of fine tuning to do but I think if I could pin down why my model liked Colgate, it would more than likely change my final four and have Gonzaga winning it all.</p>
+<p>As a wise man once said, “trust your model, coward.”</p>
 
     </div>
   </article>
