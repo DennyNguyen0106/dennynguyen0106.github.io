@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
-    <title>Denny Nguyen&#39;s Github Site</title>
-    <link>/</link>
-    <description>Recent content on Denny Nguyen&#39;s Github Site</description>
+    <title>Humor on Denny Nguyen&#39;s Github Site</title>
+    <link>/tags/humor/</link>
+    <description>Recent content in Humor on Denny Nguyen&#39;s Github Site</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
-    <lastBuildDate>Tue, 23 Mar 2021 00:00:00 +0000</lastBuildDate><atom:link href="/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Tue, 23 Mar 2021 00:00:00 +0000</lastBuildDate><atom:link href="/tags/humor/index.xml" rel="self" type="application/rss+xml" />
     <item>
       <title>How I would&#39;ve lost all of my money if I bet on the NCAA bracket (with machine learning)</title>
       <link>/2021/03/23/how-i-would-ve-lost-all-of-my-money-if-i-bet-on-the-ncaa-bracket-with-machine-learning/</link>
@@ -15,15 +15,6 @@
       <guid>/2021/03/23/how-i-would-ve-lost-all-of-my-money-if-i-bet-on-the-ncaa-bracket-with-machine-learning/</guid>
       <description>The greatest thing about my current job is that it does not allow me to bet money on college sports. If I were able to bet on March Madness, I would be in serious debt.
 I don’t claim to be a basketball genius, but I certainly wouldn’t say that I have no idea what I’m doing when filling out an NCAA Tournament bracket. When I’m picking my teams, I can back up my picks with solid reasoning.</description>
-    </item>
-    
-    <item>
-      <title>About</title>
-      <link>/about/</link>
-      <pubDate>Thu, 05 May 2016 21:48:51 -0700</pubDate>
-      
-      <guid>/about/</guid>
-      <description>This is a &amp;ldquo;hello world&amp;rdquo; example website for the blogdown package. The theme was forked from @jrutheiser/hugo-lithium-theme and modified by Yihui Xie.</description>
     </item>
     
   </channel>
